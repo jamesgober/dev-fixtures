@@ -1,0 +1,47 @@
+[package]
+name = "dev-fixtures"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+readme = "README.md"
+license = "Apache-2.0"
+
+authors = [
+    "James Gober <me@jamesgober.com>"
+]
+
+description = "Repeatable test environments, sample data, and controlled inputs. Part of the dev-* verification suite."
+
+keywords = [
+    "testing",
+    "fixtures",
+    "tempdir",
+    "verification",
+    "ai-tools"
+]
+
+categories = [
+    "development-tools",
+    "development-tools::testing",
+    "filesystem"
+]
+
+documentation = "https://docs.rs/dev-fixtures"
+repository = "https://github.com/jamesgober/dev-fixtures"
+homepage = "https://github.com/jamesgober/dev-fixtures"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+tempfile = "3"
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[profile.release]
+opt-level = 3
+lto = "thin"
