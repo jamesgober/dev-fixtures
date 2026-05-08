@@ -159,8 +159,10 @@ across platforms.
 
 ## Minimum supported Rust version
 
-`1.75` — pinned in `Cargo.toml` via `rust-version` and verified by
-the MSRV job in CI.
+`1.85` — pinned in `Cargo.toml` via `rust-version` and verified by
+the MSRV job in CI. (Bumped from 1.75 because `tempfile`'s
+transitive dep `getrandom` requires `edition2024`, stabilized in
+Rust 1.85.)
 
 ## License
 
