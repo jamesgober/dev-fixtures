@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-08
+
+### Added
+
+#### Adoption of dev-report 0.9
+
+- Added `dev-report = "0.9"` dependency.
+- `Fixture::set_up_checked(name)` default method emits a `CheckResult` tagged `fixtures` (and `setup_failed` + `regression` on Err) with numeric `setup_ok` evidence.
+- `FixtureProducer<F>` adapter implementing `dev_report::Producer` for fixture-lifecycle self-tests.
+
+#### File-tree builders (v0.2 milestone)
+
+- New `tree` module with `FileTree` builder: `file`, `bytes`, `dir`, `symlink` (Unix; no-op on Windows).
+- `rust_crate(root, name, version)` helper for minimal crate layout.
+- `rust_workspace(root, members)` helper for multi-crate workspaces.
+
+#### Adversarial input generators (v0.3 milestone)
+
+- New `adversarial` module:
+  - `oversized_zeros(path, size)` — buffer of zeros.
+  - `oversized_sparse(path, size)` — sparse via `set_len`.
+  - `malformed_utf8(path)` — invalid UTF-8 bytes after valid prefix.
+  - `random_bytes(path, n, seed)` — deterministic random stream (splitmix64).
+  - `unusual_names(count)` — Unicode, emoji, long, dotted, etc.
+
+#### Golden snapshots (v0.4 milestone)
+
+- New `golden` module with `Golden::compare(name, actual)` emitting `CheckResult`:
+  - First run -> `Skip` + `created` tag, snapshot written.
+  - Match -> `Pass`.
+  - Mismatch + `DEV_FIXTURES_UPDATE_GOLDEN` set -> `Skip` + `updated` tag.
+  - Mismatch -> `Fail (Error)` with line-based diff in detail and `Evidence::snippet` for expected/actual/diff.
+
+#### Mock data generators (v0.5 milestone)
+
+- New `mock` module:
+  - `Rng::seeded(seed)` — splitmix64 RNG.
+  - `csv::generate(headers, rows, seed, row_factory)`.
+  - `json_array::generate(count, seed, element_factory)`.
+  - `bytes::{zeros, patterned, random}`.
+
+### Documentation
+
+- All public items have rustdoc with at least one example.
+- REPS.md expanded: §6 (dev-report integration + required tags/evidence), §7 (file-tree builders), §8 (adversarial inputs), §9 (golden snapshots), §10 (mock data), §11 (producer integration).
+
+[0.9.0]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.0
+
 ## [0.1.0] - 2026-05-07
 
 ### Added
@@ -21,5 +69,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a name-claim release. The public API will expand in `0.2.x` as
 adversarial input generators and golden-file helpers land.
 
-[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.0...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.1.0
