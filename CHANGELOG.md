@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-09
+
+### Added
+
+- `BinaryGolden` snapshot type for byte-content comparison. Mirrors `Golden` but for `Vec<u8>`. On mismatch, evidence includes byte counts, the first differing offset, and a hex preview of expected/actual at that offset. Tagged `fixtures` + `golden` + `binary`.
+- `mock::csv::escape_field` public helper.
+
+### Fixed
+
+- `mock::csv::generate` now escapes field values per [RFC 4180](https://datatracker.ietf.org/doc/html/rfc4180): values containing `,`, `"`, `\n`, or `\r` are wrapped in double quotes, with internal `"` doubled. Previously, such values produced malformed CSV. Header values are escaped with the same rules.
+
+[0.9.1]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.1
+
 ## [0.9.0] - 2026-05-08
 
 ### Added
@@ -69,5 +82,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a name-claim release. The public API will expand in `0.2.x` as
 adversarial input generators and golden-file helpers land.
 
-[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.1...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.1.0

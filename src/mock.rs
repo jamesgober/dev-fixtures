@@ -60,10 +60,17 @@ pub mod csv {
     /// Generate a CSV string with `rows` rows, one per `Vec<String>`
     /// produced by `row_factory`. The first line is the header.
     ///
+    /// Field values containing `,`, `"`, `\n`, or `\r` are escaped per
+    /// [RFC 4180](https://datatracker.ietf.org/doc/html/rfc4180):
+    /// the value is wrapped in double quotes and any internal `"` is
+    /// doubled. Values without those characters pass through verbatim.
+    ///
+    /// Header values are escaped the same way.
+    ///
     /// # Example
     ///
     /// ```
-    /// use dev_fixtures::mock::{csv::generate, Rng};
+    /// use dev_fixtures::mock::csv::generate;
     /// let csv = generate(
     ///     &["id", "name"],
     ///     3,
@@ -73,20 +80,52 @@ pub mod csv {
     /// assert!(csv.starts_with("id,name\n"));
     /// assert_eq!(csv.lines().count(), 4); // 1 header + 3 rows
     /// ```
+    ///
+    /// # Escaping example
+    ///
+    /// ```
+    /// use dev_fixtures::mock::csv::generate;
+    /// let csv = generate(&["a", "b"], 1, 0, |_rng| {
+    ///     vec![r#"contains, comma"#.into(), r#"has "quotes""#.into()]
+    /// });
+    /// // Both fields are wrapped; the quote inside is doubled.
+    /// assert!(csv.contains("\"contains, comma\""));
+    /// assert!(csv.contains("\"has \"\"quotes\"\"\""));
+    /// ```
     pub fn generate<F>(headers: &[&str], rows: usize, seed: u64, mut row_factory: F) -> String
     where
         F: FnMut(&mut Rng) -> Vec<String>,
     {
         let mut rng = Rng::seeded(seed);
         let mut out = String::new();
-        out.push_str(&headers.join(","));
+        let header_row: Vec<String> = headers.iter().map(|h| escape_field(h)).collect();
+        out.push_str(&header_row.join(","));
         out.push('\n');
         for _ in 0..rows {
             let row = row_factory(&mut rng);
-            out.push_str(&row.join(","));
+            let escaped: Vec<String> = row.iter().map(|f| escape_field(f)).collect();
+            out.push_str(&escaped.join(","));
             out.push('\n');
         }
         out
+    }
+
+    /// Escape a single CSV field per RFC 4180.
+    ///
+    /// Returns the field unchanged when no special characters are
+    /// present; otherwise returns the field wrapped in double quotes
+    /// with any internal `"` doubled.
+    pub fn escape_field(value: &str) -> String {
+        if value.contains(',')
+            || value.contains('"')
+            || value.contains('\n')
+            || value.contains('\r')
+        {
+            let escaped = value.replace('"', "\"\"");
+            format!("\"{}\"", escaped)
+        } else {
+            value.to_string()
+        }
     }
 }
 
@@ -219,6 +258,34 @@ mod tests {
         });
         assert!(csv.starts_with("x,y\n"));
         assert_eq!(csv.lines().count(), 4);
+    }
+
+    #[test]
+    fn csv_escapes_commas_quotes_and_newlines() {
+        let csv = csv::generate(&["a", "b"], 1, 0, |_rng| {
+            vec![
+                "value, with comma".into(),
+                "value with \"quote\" and\nnewline".into(),
+            ]
+        });
+        assert!(csv.contains("\"value, with comma\""));
+        assert!(csv.contains("\"value with \"\"quote\"\" and\nnewline\""));
+    }
+
+    #[test]
+    fn csv_escapes_in_headers_too() {
+        let csv = csv::generate(&["plain", "with, comma"], 0, 0, |_rng| vec![]);
+        assert_eq!(csv.trim(), "plain,\"with, comma\"");
+    }
+
+    #[test]
+    fn csv_unescaped_when_no_special_chars() {
+        let csv = csv::generate(&["a", "b"], 1, 0, |_rng| {
+            vec!["plain".into(), "also plain".into()]
+        });
+        assert!(csv.contains("plain,also plain"));
+        // No quotes added.
+        assert!(!csv.contains("\""));
     }
 
     #[test]

@@ -28,7 +28,7 @@ your test against it, and have the directory cleaned up on drop.
 
 ```toml
 [dependencies]
-dev-fixtures = "0.9"
+dev-fixtures = "0.9.1"
 ```
 
 ```rust
