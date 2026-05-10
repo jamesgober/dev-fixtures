@@ -354,43 +354,62 @@ fn update_mode_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Produce a line-based diff in unified-diff-ish format.
+/// Produce a line-based diff in unified-diff-ish format using LCS.
 ///
 /// Lines unique to `expected` are prefixed with `-`. Lines unique to
 /// `actual` are prefixed with `+`. Common lines are prefixed with ` `.
-/// Implementation is naive (LCS-free); fine for short snapshots.
+///
+/// Uses the standard longest-common-subsequence algorithm (O(N*M)
+/// time/space) so insertions and deletions are handled correctly:
+/// inserting one line in the middle produces one `+` line, not a
+/// cascade of edit pairs from the position-aligned naive diff.
+///
+/// Hand-rolled, no external dependencies.
 fn line_diff(expected: &str, actual: &str) -> String {
     let exp_lines: Vec<&str> = expected.lines().collect();
     let act_lines: Vec<&str> = actual.lines().collect();
-    let mut out = String::new();
-    let max = exp_lines.len().max(act_lines.len());
-    for i in 0..max {
-        match (exp_lines.get(i), act_lines.get(i)) {
-            (Some(e), Some(a)) if e == a => {
-                out.push(' ');
-                out.push_str(e);
-                out.push('\n');
-            }
-            (Some(e), Some(a)) => {
-                out.push('-');
-                out.push_str(e);
-                out.push('\n');
-                out.push('+');
-                out.push_str(a);
-                out.push('\n');
-            }
-            (Some(e), None) => {
-                out.push('-');
-                out.push_str(e);
-                out.push('\n');
-            }
-            (None, Some(a)) => {
-                out.push('+');
-                out.push_str(a);
-                out.push('\n');
-            }
-            (None, None) => break,
+    let n = exp_lines.len();
+    let m = act_lines.len();
+
+    // Build LCS length table.
+    // lcs[i][j] = length of LCS of exp_lines[..i] and act_lines[..j].
+    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+    for i in 0..n {
+        for j in 0..m {
+            lcs[i + 1][j + 1] = if exp_lines[i] == act_lines[j] {
+                lcs[i][j] + 1
+            } else {
+                lcs[i][j + 1].max(lcs[i + 1][j])
+            };
         }
+    }
+
+    // Walk back to produce the edit script.
+    let mut ops: Vec<(char, &str)> = Vec::new();
+    let (mut i, mut j) = (n, m);
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && exp_lines[i - 1] == act_lines[j - 1] {
+            ops.push((' ', exp_lines[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j]) {
+            ops.push(('+', act_lines[j - 1]));
+            j -= 1;
+        } else if i > 0 {
+            ops.push(('-', exp_lines[i - 1]));
+            i -= 1;
+        } else {
+            // Should be unreachable; defensive.
+            break;
+        }
+    }
+    ops.reverse();
+
+    let mut out = String::new();
+    for (sign, line) in ops {
+        out.push(sign);
+        out.push_str(line);
+        out.push('\n');
     }
     out
 }
@@ -462,6 +481,51 @@ mod tests {
         assert!(d.contains("-b"));
         assert!(d.contains("+x"));
         assert!(d.contains(" c"));
+    }
+
+    #[test]
+    fn line_diff_handles_insertion_in_middle() {
+        // LCS-based diff should recognize "a, b, c" inserts "x" between a and b,
+        // not output a cascade of edit pairs from position-aligned diff.
+        let d = line_diff("a\nb\nc\n", "a\nx\nb\nc\n");
+        // Common: a, b, c. Inserted: x. So we expect:
+        // " a", "+x", " b", " c"
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], " a");
+        assert_eq!(lines[1], "+x");
+        assert_eq!(lines[2], " b");
+        assert_eq!(lines[3], " c");
+    }
+
+    #[test]
+    fn line_diff_handles_deletion_in_middle() {
+        let d = line_diff("a\nb\nc\nd\n", "a\nc\nd\n");
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], " a");
+        assert_eq!(lines[1], "-b");
+        assert_eq!(lines[2], " c");
+        assert_eq!(lines[3], " d");
+    }
+
+    #[test]
+    fn line_diff_empty_inputs_yield_empty_output() {
+        assert_eq!(line_diff("", ""), "");
+    }
+
+    #[test]
+    fn line_diff_only_additions() {
+        let d = line_diff("", "a\nb\n");
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines, vec!["+a", "+b"]);
+    }
+
+    #[test]
+    fn line_diff_only_deletions() {
+        let d = line_diff("a\nb\n", "");
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines, vec!["-a", "-b"]);
     }
 
     #[test]

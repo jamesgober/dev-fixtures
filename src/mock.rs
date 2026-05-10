@@ -127,6 +127,107 @@ pub mod csv {
             value.to_string()
         }
     }
+
+    /// Parse a CSV string back into a header row + data rows.
+    ///
+    /// Implements the same RFC 4180 escaping rules used by
+    /// [`generate`]: quoted fields support embedded `,`, `"` (doubled),
+    /// `\n`, and `\r`. Designed for round-trip with `generate`, not as
+    /// a general-purpose CSV parser.
+    ///
+    /// Returns `(headers, rows)`. Each row has the same length as
+    /// `headers` for well-formed input. Trailing empty lines are
+    /// ignored. Returns `Err` with a one-line message on malformed
+    /// input (e.g. unterminated quoted field).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dev_fixtures::mock::csv::{generate, parse};
+    ///
+    /// let csv = generate(&["id", "name"], 3, 0, |rng| {
+    ///     vec![rng.range(100).to_string(), format!("u{}", rng.range(10))]
+    /// });
+    /// let (headers, rows) = parse(&csv).unwrap();
+    /// assert_eq!(headers, vec!["id", "name"]);
+    /// assert_eq!(rows.len(), 3);
+    /// for row in &rows {
+    ///     assert_eq!(row.len(), 2);
+    /// }
+    /// ```
+    pub fn parse(input: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
+        let mut all_rows: Vec<Vec<String>> = Vec::new();
+        let mut chars = input.chars().peekable();
+        let mut current_field = String::new();
+        let mut current_row: Vec<String> = Vec::new();
+        let mut in_quotes = false;
+        let mut row_has_content = false;
+        loop {
+            match chars.next() {
+                None => {
+                    // EOF
+                    if in_quotes {
+                        return Err("unterminated quoted field at EOF".to_string());
+                    }
+                    if !current_field.is_empty() || row_has_content {
+                        current_row.push(std::mem::take(&mut current_field));
+                        all_rows.push(std::mem::take(&mut current_row));
+                    }
+                    break;
+                }
+                Some(c) => {
+                    if in_quotes {
+                        match c {
+                            '"' => {
+                                if matches!(chars.peek(), Some('"')) {
+                                    chars.next();
+                                    current_field.push('"');
+                                } else {
+                                    in_quotes = false;
+                                }
+                            }
+                            other => current_field.push(other),
+                        }
+                    } else {
+                        match c {
+                            '"' if current_field.is_empty() => {
+                                in_quotes = true;
+                                row_has_content = true;
+                            }
+                            ',' => {
+                                current_row.push(std::mem::take(&mut current_field));
+                                row_has_content = true;
+                            }
+                            '\r' => {
+                                // Eat following \n if present.
+                                if matches!(chars.peek(), Some('\n')) {
+                                    chars.next();
+                                }
+                                current_row.push(std::mem::take(&mut current_field));
+                                all_rows.push(std::mem::take(&mut current_row));
+                                row_has_content = false;
+                            }
+                            '\n' => {
+                                current_row.push(std::mem::take(&mut current_field));
+                                all_rows.push(std::mem::take(&mut current_row));
+                                row_has_content = false;
+                            }
+                            other => {
+                                current_field.push(other);
+                                row_has_content = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if all_rows.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let headers = all_rows.remove(0);
+        Ok((headers, all_rows))
+    }
 }
 
 /// Module containing JSON array generation.
@@ -162,6 +263,250 @@ pub mod json_array {
         }
         out.push(']');
         out
+    }
+
+    /// Like [`generate`] but validates the output as JSON before
+    /// returning it.
+    ///
+    /// Performs a structural validation pass: every byte of the
+    /// output must form a syntactically valid JSON value. Returns
+    /// `Err(message)` if validation fails — typically because the
+    /// `element_factory` returned malformed JSON.
+    ///
+    /// Useful as a defensive guard when the factory produces JSON
+    /// from external/untrusted templates. Adds linear-in-output-size
+    /// overhead.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dev_fixtures::mock::json_array::generate_validated;
+    ///
+    /// let json = generate_validated(3, 0, |rng| format!("{{\"v\":{}}}", rng.range(10))).unwrap();
+    /// assert!(json.starts_with("["));
+    ///
+    /// // A broken factory triggers a validation error.
+    /// let err = generate_validated(1, 0, |_| "not_json".to_string()).unwrap_err();
+    /// assert!(err.contains("invalid"));
+    /// ```
+    pub fn generate_validated<F>(
+        count: usize,
+        seed: u64,
+        element_factory: F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(&mut Rng) -> String,
+    {
+        let out = generate(count, seed, element_factory);
+        validate_json(&out)?;
+        Ok(out)
+    }
+
+    /// Minimal JSON structural validator.
+    ///
+    /// Returns `Ok(())` if `s` is a syntactically valid JSON value
+    /// (object, array, string, number, true/false/null). Does NOT
+    /// validate semantics (e.g. duplicate keys are accepted).
+    ///
+    /// Hand-rolled, no `serde_json` dependency at the public surface.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dev_fixtures::mock::json_array::validate_json;
+    ///
+    /// assert!(validate_json("[]").is_ok());
+    /// assert!(validate_json("[{\"x\": 1}]").is_ok());
+    /// assert!(validate_json("[invalid]").is_err());
+    /// ```
+    pub fn validate_json(s: &str) -> Result<(), String> {
+        let mut parser = MiniJsonParser::new(s);
+        parser.skip_ws();
+        parser.parse_value()?;
+        parser.skip_ws();
+        if parser.pos < parser.bytes.len() {
+            return Err(format!(
+                "trailing characters after JSON value at position {}",
+                parser.pos
+            ));
+        }
+        Ok(())
+    }
+
+    struct MiniJsonParser<'a> {
+        bytes: &'a [u8],
+        pos: usize,
+    }
+
+    impl<'a> MiniJsonParser<'a> {
+        fn new(s: &'a str) -> Self {
+            Self {
+                bytes: s.as_bytes(),
+                pos: 0,
+            }
+        }
+
+        fn skip_ws(&mut self) {
+            while self.pos < self.bytes.len()
+                && matches!(self.bytes[self.pos], b' ' | b'\t' | b'\n' | b'\r')
+            {
+                self.pos += 1;
+            }
+        }
+
+        fn parse_value(&mut self) -> Result<(), String> {
+            self.skip_ws();
+            if self.pos >= self.bytes.len() {
+                return Err("unexpected end of input".to_string());
+            }
+            match self.bytes[self.pos] {
+                b'{' => self.parse_object(),
+                b'[' => self.parse_array(),
+                b'"' => self.parse_string(),
+                b't' | b'f' => self.parse_bool(),
+                b'n' => self.parse_null(),
+                b'-' | b'0'..=b'9' => self.parse_number(),
+                other => Err(format!(
+                    "invalid JSON: unexpected '{}' at position {}",
+                    other as char, self.pos
+                )),
+            }
+        }
+
+        fn parse_object(&mut self) -> Result<(), String> {
+            self.pos += 1; // consume '{'
+            self.skip_ws();
+            if self.peek() == Some(b'}') {
+                self.pos += 1;
+                return Ok(());
+            }
+            loop {
+                self.skip_ws();
+                self.parse_string()?;
+                self.skip_ws();
+                if self.peek() != Some(b':') {
+                    return Err(format!("expected ':' at position {}", self.pos));
+                }
+                self.pos += 1;
+                self.parse_value()?;
+                self.skip_ws();
+                match self.peek() {
+                    Some(b',') => {
+                        self.pos += 1;
+                    }
+                    Some(b'}') => {
+                        self.pos += 1;
+                        return Ok(());
+                    }
+                    _ => {
+                        return Err(format!(
+                            "expected ',' or '}}' in object at position {}",
+                            self.pos
+                        ));
+                    }
+                }
+            }
+        }
+
+        fn parse_array(&mut self) -> Result<(), String> {
+            self.pos += 1; // consume '['
+            self.skip_ws();
+            if self.peek() == Some(b']') {
+                self.pos += 1;
+                return Ok(());
+            }
+            loop {
+                self.parse_value()?;
+                self.skip_ws();
+                match self.peek() {
+                    Some(b',') => {
+                        self.pos += 1;
+                    }
+                    Some(b']') => {
+                        self.pos += 1;
+                        return Ok(());
+                    }
+                    _ => {
+                        return Err(format!(
+                            "expected ',' or ']' in array at position {}",
+                            self.pos
+                        ));
+                    }
+                }
+            }
+        }
+
+        fn parse_string(&mut self) -> Result<(), String> {
+            if self.peek() != Some(b'"') {
+                return Err(format!("expected string at position {}", self.pos));
+            }
+            self.pos += 1;
+            while self.pos < self.bytes.len() {
+                match self.bytes[self.pos] {
+                    b'"' => {
+                        self.pos += 1;
+                        return Ok(());
+                    }
+                    b'\\' => {
+                        self.pos += 1;
+                        if self.pos >= self.bytes.len() {
+                            return Err("unterminated escape in string".to_string());
+                        }
+                        self.pos += 1;
+                    }
+                    _ => self.pos += 1,
+                }
+            }
+            Err("unterminated string".to_string())
+        }
+
+        fn parse_bool(&mut self) -> Result<(), String> {
+            if self.bytes[self.pos..].starts_with(b"true") {
+                self.pos += 4;
+                Ok(())
+            } else if self.bytes[self.pos..].starts_with(b"false") {
+                self.pos += 5;
+                Ok(())
+            } else {
+                Err(format!("invalid bool at position {}", self.pos))
+            }
+        }
+
+        fn parse_null(&mut self) -> Result<(), String> {
+            if self.bytes[self.pos..].starts_with(b"null") {
+                self.pos += 4;
+                Ok(())
+            } else {
+                Err(format!("invalid null at position {}", self.pos))
+            }
+        }
+
+        fn parse_number(&mut self) -> Result<(), String> {
+            let start = self.pos;
+            if self.peek() == Some(b'-') {
+                self.pos += 1;
+            }
+            while self.pos < self.bytes.len() {
+                let c = self.bytes[self.pos];
+                if c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-') {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            }
+            if self.pos == start || (self.peek_at(start) == Some(b'-') && self.pos == start + 1) {
+                return Err(format!("invalid number at position {}", start));
+            }
+            Ok(())
+        }
+
+        fn peek(&self) -> Option<u8> {
+            self.bytes.get(self.pos).copied()
+        }
+
+        fn peek_at(&self, idx: usize) -> Option<u8> {
+            self.bytes.get(idx).copied()
+        }
     }
 }
 
@@ -295,6 +640,92 @@ mod tests {
         assert!(json.ends_with("]"));
         // 3 elements -> 2 commas at top level.
         assert_eq!(json.matches(',').count(), 2);
+    }
+
+    #[test]
+    fn json_array_validates_well_formed() {
+        let json =
+            json_array::generate_validated(3, 0, |rng| format!("{{\"v\":{}}}", rng.range(10)))
+                .unwrap();
+        assert!(json.starts_with("["));
+    }
+
+    #[test]
+    fn json_array_validation_rejects_garbage_factory_output() {
+        let err = json_array::generate_validated(2, 0, |_| "not_json".to_string()).unwrap_err();
+        assert!(err.contains("invalid"));
+    }
+
+    #[test]
+    fn json_validate_accepts_canonical_examples() {
+        for s in &[
+            "{}",
+            "[]",
+            "[1,2,3]",
+            "{\"a\":1}",
+            "[{\"k\":[true,false,null]}]",
+            "[\"with \\\"quote\\\"\"]",
+            "{\"n\": -3.14e2}",
+        ] {
+            assert!(json_array::validate_json(s).is_ok(), "should accept: {}", s);
+        }
+    }
+
+    #[test]
+    fn json_validate_rejects_malformed() {
+        for s in &["{", "[", "[,]", "{1:1}", "[true,]"] {
+            assert!(
+                json_array::validate_json(s).is_err(),
+                "should reject: {}",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn csv_round_trip_with_special_chars() {
+        let csv = csv::generate(&["id", "note"], 2, 0, |rng| {
+            vec![
+                rng.range(100).to_string(),
+                "value, with comma\nand newline".into(),
+            ]
+        });
+        let (headers, rows) = csv::parse(&csv).unwrap();
+        assert_eq!(headers, vec!["id", "note"]);
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(row.len(), 2);
+            assert!(row[1].contains("value, with comma"));
+            assert!(row[1].contains('\n'));
+        }
+    }
+
+    #[test]
+    fn csv_parse_quoted_doubled_quote() {
+        let csv = "a,b\nplain,\"has \"\"quote\"\" inside\"\n";
+        let (h, r) = csv::parse(csv).unwrap();
+        assert_eq!(h, vec!["a", "b"]);
+        assert_eq!(r[0][1], "has \"quote\" inside");
+    }
+
+    #[test]
+    fn csv_parse_rejects_unterminated_quote() {
+        let csv = "a,b\n\"never closes,foo\n";
+        assert!(csv::parse(csv).is_err());
+    }
+
+    #[test]
+    fn csv_parse_handles_crlf() {
+        let csv = "a,b\r\n1,2\r\n3,4\r\n";
+        let (h, r) = csv::parse(csv).unwrap();
+        assert_eq!(h, vec!["a", "b"]);
+        assert_eq!(
+            r,
+            vec![
+                vec!["1".to_string(), "2".to_string()],
+                vec!["3".to_string(), "4".to_string()]
+            ]
+        );
     }
 
     #[test]

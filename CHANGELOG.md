@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-10
+
+### Added
+
+- `mock::csv::parse(input)` — round-trip CSV parser. Reads RFC-4180-encoded CSV produced by `generate` and yields `(headers, rows)`. Supports quoted fields with embedded commas, doubled-quote escapes, and `CRLF`/`LF` line endings.
+- `mock::json_array::generate_validated(...)` — same as `generate` but returns `Err(message)` if the produced output isn't structurally valid JSON. Useful as a defensive guard when the factory builds JSON from external templates.
+- `mock::json_array::validate_json(s)` — minimal hand-rolled JSON structural validator (no `serde_json` dependency at the public surface).
+
+### Changed
+
+- `Golden::compare` now uses an LCS-based diff (longest common subsequence) instead of position-aligned line-by-line comparison. Insertions and deletions in the middle of a snapshot now produce a single `+` or `-` line, not a cascade of edit pairs. Hand-rolled implementation; no new dependencies.
+
+[0.9.2]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.2
+
 ## [0.9.1] - 2026-05-09
 
 ### Added
@@ -82,5 +96,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a name-claim release. The public API will expand in `0.2.x` as
 adversarial input generators and golden-file helpers land.
 
-[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.2...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.1.0
