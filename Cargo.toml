@@ -1,6 +1,6 @@
 [package]
 name = "dev-fixtures"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.85"
 readme = "README.md"
@@ -10,14 +10,14 @@ authors = [
     "James Gober <me@jamesgober.com>"
 ]
 
-description = "Repeatable test environments, sample data, and controlled inputs. Part of the dev-* verification suite."
+description = "Deterministic test fixtures for Rust: disposable project trees, golden-file snapshots, controlled mock data, file-tree builders. Part of the dev-* verification collection."
 
 keywords = [
     "testing",
     "fixtures",
     "tempdir",
-    "verification",
-    "ai-tools"
+    "snapshot",
+    "golden"
 ]
 
 categories = [
