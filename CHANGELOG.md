@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-12
+
 ### Added
 
 - `examples/temp_project.rs` — runnable demonstration of the `TempProject` lifecycle: stage text + binary files, build the directory, inspect declared paths, then verify cleanup on drop.
@@ -14,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - CI: `actions/checkout` bumped from `v4` to `v5` (removes Node 20 deprecation warnings).
+
+[0.9.3]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.3
 
 ## [0.9.2] - 2026-05-10
 
@@ -104,5 +108,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a name-claim release. The public API will expand in `0.2.x` as
 adversarial input generators and golden-file helpers land.
 
-[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-fixtures/compare/v0.9.3...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.1.0
