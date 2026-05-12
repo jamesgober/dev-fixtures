@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `examples/temp_project.rs` — runnable demonstration of the `TempProject` lifecycle: stage text + binary files, build the directory, inspect declared paths, then verify cleanup on drop.
+
+### Changed
+
+- CI: `actions/checkout` bumped from `v4` to `v5` (removes Node 20 deprecation warnings).
+
 ## [0.9.2] - 2026-05-10
 
 ### Added
