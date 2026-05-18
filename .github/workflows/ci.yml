@@ -20,7 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check out sibling crates (path deps)
-        run: git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+        run: |
+          git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+          git clone --depth 1 https://github.com/jamesgober/mod-tempdir.git ../mod-tempdir
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -36,7 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check out sibling crates (path deps)
-        run: git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+        run: |
+          git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+          git clone --depth 1 https://github.com/jamesgober/mod-tempdir.git ../mod-tempdir
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -61,7 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check out sibling crates (path deps)
-        run: git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+        run: |
+          git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+          git clone --depth 1 https://github.com/jamesgober/mod-tempdir.git ../mod-tempdir
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --no-deps
@@ -72,7 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Check out sibling crates (path deps)
-        run: git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+        run: |
+          git clone --depth 1 https://github.com/jamesgober/dev-report.git ../dev-report
+          git clone --depth 1 https://github.com/jamesgober/mod-tempdir.git ../mod-tempdir
       - uses: dtolnay/rust-toolchain@1.85
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --verbose
