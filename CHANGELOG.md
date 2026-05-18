@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-05-18
+
+`tempfile` → `mod-tempdir` swap. MSRV drops to 1.75.
+
+### Changed
+
+- **Internal `tempfile = "3"` dependency swapped to `mod-tempdir = "1"`.** The `TempProject` struct now holds a `mod_tempdir::TempDir` instead of a `tempfile::TempDir`. Auto-cleanup-on-drop semantics are preserved; the public API of `TempProject` is unchanged. Downstream callers see no behavior difference.
+- **Doc examples and integration tests updated.** Every `tempfile::tempdir()` call site across `src/adversarial.rs`, `src/golden.rs`, `src/tree.rs`, and `tests/smoke.rs` now uses `mod_tempdir::TempDir::new()`. Both APIs return `io::Result<TempDir>` so the call shape stays identical.
+- **MSRV lowered from `1.85` to `1.75`.** Killing the `tempfile → getrandom 0.4.2 → edition2024` transitive chain unblocks the rollback. `mod-tempdir` is MSRV 1.75 with zero `std`-external runtime deps.
+- README MSRV badge updated from `1.85+` to `1.75+`. Install snippet bumped to `dev-fixtures = "0.9.5"`.
+
+### Removed
+
+- `tempfile` dropped from `[dependencies]`. `tempfile` was the sole reason the entire `dev-*` collection was pinned to MSRV 1.85; eliminating it here unlocks the suite-wide rollback.
+
+### Notes
+
+- Public `TempProject`, `TempProjectBuilder`, `FixtureProducer`, `Golden`, `BinaryGolden`, `tree::*`, `adversarial::*`, and `mock::*` APIs unchanged. Existing callers compile against 0.9.5 without source edits.
+- Library, examples, and tests all build clean on Rust 1.75 (verified locally with `cargo +1.75 check --all-features`).
+- No new transitive dependencies. `mod-tempdir` 1.0.0 has zero runtime deps outside `std`.
+
+[0.9.5]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.5
+
 ## [0.9.4] - 2026-05-12
 
 Documentation and SEO pass. No code changes.

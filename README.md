@@ -9,7 +9,7 @@
     <a href="https://crates.io/crates/dev-fixtures"><img alt="crates.io" src="https://img.shields.io/crates/v/dev-fixtures.svg"></a>
     <a href="https://crates.io/crates/dev-fixtures"><img alt="downloads" src="https://img.shields.io/crates/d/dev-fixtures.svg"></a>
     <a href="https://github.com/jamesgober/dev-fixtures/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jamesgober/dev-fixtures/actions/workflows/ci.yml/badge.svg"></a>
-    <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.85%2B-blue.svg?style=flat-square" title="Rust Version">
+    <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.75%2B-blue.svg?style=flat-square" title="Rust Version">
     <a href="https://docs.rs/dev-fixtures"><img alt="docs.rs" src="https://docs.rs/dev-fixtures/badge.svg"></a>
 </p>
 
@@ -38,7 +38,7 @@ your test against it, and have the directory cleaned up on drop.
 
 ```toml
 [dependencies]
-dev-fixtures = "0.9.4"
+dev-fixtures = "0.9.5"
 ```
 
 ```rust
@@ -59,7 +59,7 @@ let project = TempProject::new()
 ```rust
 use dev_fixtures::tree::{rust_workspace, FileTree};
 
-let dir = tempfile::tempdir().unwrap();
+let dir = mod_tempdir::TempDir::new().unwrap();
 
 // One-line workspace.
 rust_workspace(dir.path(), &["alpha", "beta"]).unwrap();
@@ -78,7 +78,7 @@ FileTree::new(dir.path())
 ```rust
 use dev_fixtures::adversarial;
 
-let dir = tempfile::tempdir().unwrap();
+let dir = mod_tempdir::TempDir::new().unwrap();
 
 adversarial::oversized_zeros(&dir.path().join("big.bin"), 1_000_000).unwrap();
 adversarial::malformed_utf8(&dir.path().join("bad.txt")).unwrap();
@@ -92,7 +92,7 @@ let names = adversarial::unusual_names(5); // emoji, Unicode, dotted, etc.
 ```rust
 use dev_fixtures::golden::Golden;
 
-let dir = tempfile::tempdir().unwrap();
+let dir = mod_tempdir::TempDir::new().unwrap();
 let g = Golden::new(dir.path().join("snap.txt"));
 
 // First call creates the snapshot (verdict=Skip, tag=created).

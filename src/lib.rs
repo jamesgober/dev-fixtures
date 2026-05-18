@@ -53,8 +53,8 @@ pub mod tree;
 
 /// A temporary project directory that auto-cleans on drop.
 ///
-/// Holds an internal `tempfile::TempDir`. The temp directory is deleted
-/// when this value is dropped.
+/// Holds an internal [`mod_tempdir::TempDir`]. The temp directory is
+/// deleted when this value is dropped.
 ///
 /// # Example
 ///
@@ -68,7 +68,7 @@ pub mod tree;
 /// assert!(p.path().join("README.md").exists());
 /// ```
 pub struct TempProject {
-    _dir: tempfile::TempDir,
+    _dir: mod_tempdir::TempDir,
     files: Vec<(PathBuf, Vec<u8>)>,
 }
 
@@ -135,7 +135,7 @@ impl TempProjectBuilder {
 
     /// Build the temp project on disk.
     pub fn build(self) -> io::Result<TempProject> {
-        let dir = tempfile::tempdir()?;
+        let dir = mod_tempdir::TempDir::new()?;
         for (rel, bytes) in &self.files {
             let target = dir.path().join(rel);
             if let Some(parent) = target.parent() {
