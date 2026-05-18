@@ -20,7 +20,7 @@ use dev_report::{CheckResult, Evidence, Severity};
 ///
 /// ```
 /// use dev_fixtures::golden::Golden;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("snap.txt");
 /// std::fs::write(&path, "hello\n").unwrap();
 ///
@@ -179,7 +179,7 @@ impl Golden {
 ///
 /// ```
 /// use dev_fixtures::golden::BinaryGolden;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("snap.bin");
 /// std::fs::write(&path, &[0u8, 1, 2, 3]).unwrap();
 ///
@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn first_run_creates_snapshot_and_skips() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.txt");
         let g = Golden::new(&path);
         let c = g.compare("greet", "hello\n");
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn matching_snapshot_passes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.txt");
         fs::write(&path, "hello\n").unwrap();
         let c = Golden::new(&path).compare("greet", "hello\n");
@@ -449,7 +449,7 @@ mod tests {
         let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Make sure update mode is off for this test.
         std::env::remove_var("DEV_FIXTURES_UPDATE_GOLDEN");
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.txt");
         fs::write(&path, "hello\nworld\n").unwrap();
         let c = Golden::new(&path).compare("greet", "hello\nuniverse\n");
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn update_mode_overwrites_snapshot() {
         let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.txt");
         fs::write(&path, "old\n").unwrap();
         std::env::set_var("DEV_FIXTURES_UPDATE_GOLDEN", "1");
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn binary_golden_first_run_creates_snapshot() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.bin");
         let g = BinaryGolden::new(&path);
         let c = g.compare("frame", &[1u8, 2, 3, 4]);
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn binary_golden_matching_passes() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.bin");
         std::fs::write(&path, [1u8, 2, 3]).unwrap();
         let c = BinaryGolden::new(&path).compare("frame", &[1u8, 2, 3]);
@@ -555,7 +555,7 @@ mod tests {
     fn binary_golden_mismatch_fails_with_offset_and_preview() {
         let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("DEV_FIXTURES_UPDATE_GOLDEN");
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.bin");
         std::fs::write(&path, [1u8, 2, 3, 4, 5]).unwrap();
         let c = BinaryGolden::new(&path).compare("frame", &[1u8, 2, 99, 4, 5]);

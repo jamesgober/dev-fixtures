@@ -1,8 +1,8 @@
 [package]
 name = "dev-fixtures"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.75"
 readme = "README.md"
 license = "Apache-2.0"
 
@@ -35,7 +35,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-tempfile = "3"
+# Swapped from `tempfile = "3"` to mod-tempdir 1.0 in v0.9.5 — drops
+# the transitive `getrandom 0.4.2 → edition2024` chain that was the
+# sole blocker keeping the `dev-*` collection at MSRV 1.85. mod-tempdir
+# is a drop-in replacement with the same RAII auto-cleanup semantics.
+mod-tempdir = { version = "1", path = "../mod-tempdir" }
 dev-report = { version = "0.9", path = "../dev-report" }
 
 [dev-dependencies]

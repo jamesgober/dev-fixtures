@@ -27,7 +27,7 @@ use std::path::Path;
 ///
 /// ```
 /// use dev_fixtures::adversarial::oversized_zeros;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("big.bin");
 /// oversized_zeros(&path, 4096).unwrap();
 /// assert_eq!(std::fs::metadata(&path).unwrap().len(), 4096);
@@ -48,7 +48,7 @@ pub fn oversized_zeros(path: &Path, size_bytes: u64) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::adversarial::oversized_sparse;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("sparse.bin");
 /// oversized_sparse(&path, 1_000_000).unwrap();
 /// assert_eq!(std::fs::metadata(&path).unwrap().len(), 1_000_000);
@@ -72,7 +72,7 @@ pub fn oversized_sparse(path: &Path, size_bytes: u64) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::adversarial::malformed_utf8;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("bad.txt");
 /// malformed_utf8(&path).unwrap();
 /// let bytes = std::fs::read(&path).unwrap();
@@ -92,7 +92,7 @@ pub fn malformed_utf8(path: &Path) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::adversarial::random_bytes;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// let path = dir.path().join("rand.bin");
 /// random_bytes(&path, 32, 42).unwrap();
 /// let a = std::fs::read(&path).unwrap();
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn oversized_zeros_writes_exact_size() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("big.bin");
         oversized_zeros(&path, 1024).unwrap();
         let bytes = fs::read(&path).unwrap();
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn oversized_sparse_reports_exact_size() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("sparse.bin");
         oversized_sparse(&path, 4096).unwrap();
         let meta = fs::metadata(&path).unwrap();
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn malformed_utf8_is_not_valid_utf8() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("bad.txt");
         malformed_utf8(&path).unwrap();
         let bytes = fs::read(&path).unwrap();
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn random_bytes_are_deterministic_from_seed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("rand.bin");
         random_bytes(&path, 64, 7).unwrap();
         let a = fs::read(&path).unwrap();
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn random_bytes_differ_with_seed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         let path_a = dir.path().join("a.bin");
         let path_b = dir.path().join("b.bin");
         random_bytes(&path_a, 64, 1).unwrap();

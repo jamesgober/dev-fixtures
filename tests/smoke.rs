@@ -66,7 +66,7 @@ fn smoke_fixture_producer_emits_report() {
 
 #[test]
 fn smoke_file_tree_workspace_layout() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     rust_workspace(dir.path(), &["a", "b"]).unwrap();
     assert!(dir.path().join("a/Cargo.toml").exists());
     assert!(dir.path().join("b/src/lib.rs").exists());
@@ -74,7 +74,7 @@ fn smoke_file_tree_workspace_layout() {
 
 #[test]
 fn smoke_file_tree_basic() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     FileTree::new(dir.path())
         .file("a.txt", "hello")
         .dir("d")
@@ -86,7 +86,7 @@ fn smoke_file_tree_basic() {
 
 #[test]
 fn smoke_rust_crate_helper() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     rust_crate(dir.path(), "alpha", "0.1.0").unwrap();
     let cargo = std::fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
     assert!(cargo.contains("name = \"alpha\""));
@@ -94,7 +94,7 @@ fn smoke_rust_crate_helper() {
 
 #[test]
 fn smoke_adversarial_oversized_and_random() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("big.bin");
     adversarial::oversized_zeros(&path, 4096).unwrap();
     assert_eq!(std::fs::metadata(&path).unwrap().len(), 4096);
@@ -106,7 +106,7 @@ fn smoke_adversarial_oversized_and_random() {
 
 #[test]
 fn smoke_adversarial_malformed_utf8_round_trip() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("bad.txt");
     adversarial::malformed_utf8(&path).unwrap();
     let bytes = std::fs::read(&path).unwrap();
@@ -115,7 +115,7 @@ fn smoke_adversarial_malformed_utf8_round_trip() {
 
 #[test]
 fn smoke_golden_first_run_creates_then_matches() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("snap.txt");
     let g = Golden::new(&path);
     let first = g.compare("greet", "hello\n");
@@ -126,7 +126,7 @@ fn smoke_golden_first_run_creates_then_matches() {
 
 #[test]
 fn smoke_golden_mismatch_yields_diff() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("snap.txt");
     std::fs::write(&path, "expected\n").unwrap();
     let c = Golden::new(&path).compare("x", "actual\n");

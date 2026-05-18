@@ -28,7 +28,7 @@ enum Entry {
 ///
 /// ```
 /// use dev_fixtures::tree::FileTree;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// FileTree::new(dir.path())
 ///     .file("README.md", "hello")
 ///     .dir("src")
@@ -132,7 +132,7 @@ impl FileTree {
 ///
 /// ```
 /// use dev_fixtures::tree::rust_crate;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// rust_crate(dir.path(), "sample", "0.1.0").unwrap();
 /// assert!(dir.path().join("Cargo.toml").exists());
 /// assert!(dir.path().join("src/lib.rs").exists());
@@ -158,7 +158,7 @@ pub fn rust_crate(root: &Path, name: &str, version: &str) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::tree::rust_workspace;
-/// let dir = tempfile::tempdir().unwrap();
+/// let dir = mod_tempdir::TempDir::new().unwrap();
 /// rust_workspace(dir.path(), &["a", "b"]).unwrap();
 /// assert!(dir.path().join("a/Cargo.toml").exists());
 /// assert!(dir.path().join("b/Cargo.toml").exists());
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn build_basic_tree() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         FileTree::new(dir.path())
             .file("a.txt", "hello")
             .dir("empty")
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn rust_crate_layout() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         rust_crate(dir.path(), "sample", "0.1.0").unwrap();
         let cargo = fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
         assert!(cargo.contains("name = \"sample\""));
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn rust_workspace_layout() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         rust_workspace(dir.path(), &["alpha", "beta"]).unwrap();
         let ws = fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
         assert!(ws.contains("\"alpha\""));
@@ -226,7 +226,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlink_unix() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         FileTree::new(dir.path())
             .file("real.txt", "data")
             .symlink("link.txt", "real.txt")
@@ -238,7 +238,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn symlink_no_op_on_windows() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = mod_tempdir::TempDir::new().unwrap();
         // Should succeed without creating anything.
         FileTree::new(dir.path())
             .symlink("link.txt", "real.txt")
