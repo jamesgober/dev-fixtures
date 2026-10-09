@@ -40,6 +40,18 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// Version of this crate as compiled, taken from its `Cargo.toml`.
+///
+/// Lets tools that bundle this crate, such as the `dev` CLI in
+/// `dev-tools`, report the version that is actually linked.
+///
+/// # Example
+///
+/// ```
+/// assert!(!dev_fixtures::VERSION.is_empty());
+/// ```
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -134,10 +146,15 @@ impl TempProjectBuilder {
     }
 
     /// Build the temp project on disk.
+    ///
+    /// Every staged path must be relative and stay inside the temp
+    /// directory. A path with `..`, an absolute path, or a drive prefix
+    /// fails with [`io::ErrorKind::InvalidInput`]; the partially built
+    /// temp directory is removed before the error is returned.
     pub fn build(self) -> io::Result<TempProject> {
         let dir = mod_tempdir::TempDir::new()?;
         for (rel, bytes) in &self.files {
-            let target = dir.path().join(rel);
+            let target = tree::join_inside(dir.path(), rel)?;
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -366,6 +383,32 @@ mod tests {
             path
         };
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn temp_project_rejects_escaping_paths_and_cleans_up() {
+        let marker = std::env::temp_dir().join("dev_fixtures_escape_marker.txt");
+        let _ = std::fs::remove_file(&marker);
+        for bad in [
+            PathBuf::from("../dev_fixtures_escape_marker.txt"),
+            marker.clone(),
+        ] {
+            let err = TempProject::new()
+                .with_file("ok.txt", "fine")
+                .with_file(bad.clone(), "escaped")
+                .build()
+                .err()
+                .expect("escaping path must be rejected");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{}", bad.display());
+        }
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn temp_project_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<TempProject>();
+        assert_send_sync::<TempProjectBuilder>();
     }
 
     struct OkFixture;

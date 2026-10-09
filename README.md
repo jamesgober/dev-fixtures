@@ -73,6 +73,11 @@ FileTree::new(dir.path())
     .unwrap();
 ```
 
+Paths staged on `TempProject` and `FileTree` must be relative and stay
+inside the root. `..`, absolute paths, drive prefixes, and writes through
+a symlink that points outside the root fail with `InvalidInput` instead
+of touching files elsewhere.
+
 ## Adversarial inputs
 
 ```rust
@@ -103,7 +108,10 @@ assert!(matches!(check.verdict, dev_report::Verdict::Pass));
 ```
 
 Set `DEV_FIXTURES_UPDATE_GOLDEN=1` to regenerate snapshots on
-intentional changes.
+intentional changes. Empty, `0`, `false`, `no` and `off` leave update
+mode off. Text snapshots treat CRLF and LF line endings as equal, so a
+snapshot checked out with `core.autocrlf` on Windows still matches; use
+`BinaryGolden` when the exact bytes matter.
 
 ## Mock data
 
@@ -187,10 +195,8 @@ across platforms.
 
 ## Minimum supported Rust version
 
-`1.85` — pinned in `Cargo.toml` via `rust-version` and verified by
-the MSRV job in CI. (Bumped from 1.75 because `tempfile`'s
-transitive dep `getrandom` requires `edition2024`, stabilized in
-Rust 1.85.)
+`1.75`, pinned in `Cargo.toml` via `rust-version` and verified by the
+MSRV job in CI.
 
 ## License
 

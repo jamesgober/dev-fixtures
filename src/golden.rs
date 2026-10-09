@@ -4,10 +4,19 @@
 //! value. On mismatch, the result is a [`CheckResult`] with a
 //! line-based diff in `detail` and `EvidenceData::Snippet` evidence.
 //!
-//! Set the `DEV_FIXTURES_UPDATE_GOLDEN` environment variable to any
-//! non-empty value to overwrite the stored snapshot with the actual
-//! value on mismatch — useful for intentional changes.
+//! Set the `DEV_FIXTURES_UPDATE_GOLDEN` environment variable (for
+//! example to `1`) to overwrite the stored snapshot with the actual
+//! value on mismatch, which is useful for intentional changes. The
+//! values `0`, `false`, `no`, `off` (any case) and the empty string
+//! leave update mode off, so `DEV_FIXTURES_UPDATE_GOLDEN=0` in a CI
+//! config does not rewrite snapshots.
+//!
+//! [`Golden`] compares text with `\r\n` and `\n` treated as the same
+//! line ending, so snapshots checked out with Git's `core.autocrlf` on
+//! Windows still match. Use [`BinaryGolden`] when the exact bytes,
+//! including line endings, matter.
 
+use std::borrow::Cow;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -43,12 +52,18 @@ impl Golden {
     /// Compare `actual` against the stored snapshot and emit a
     /// [`CheckResult`] tagged `fixtures` and `golden`.
     ///
+    /// Line endings are normalized before comparing: `\r\n` in either
+    /// the snapshot or `actual` is treated as `\n`. Any other difference,
+    /// including a missing or extra final newline, is a mismatch.
+    ///
     /// Verdicts:
     /// - Snapshot matches -> `Pass`.
     /// - Snapshot missing -> `Skip` with `created` tag (the snapshot
     ///   is written to disk for the first time).
-    /// - Snapshot mismatch + update mode -> `Skip` with `updated` tag
-    ///   (the snapshot is overwritten with `actual`).
+    /// - Snapshot mismatch + update mode (`DEV_FIXTURES_UPDATE_GOLDEN`
+    ///   set to a value other than empty, `0`, `false`, `no` or `off`)
+    ///   -> `Skip` with `updated` tag (the snapshot is overwritten with
+    ///   `actual`).
     /// - Snapshot mismatch (default) -> `Fail (Error)` with `regression`
     ///   tag, line-based diff in `detail`, and full actual/expected
     ///   as snippet evidence.
@@ -97,7 +112,11 @@ impl Golden {
             }
         };
 
-        if actual == expected {
+        // CRLF and LF are treated as the same line ending, so a snapshot
+        // checked out with `core.autocrlf=true` on Windows still matches.
+        let expected_norm = normalize_newlines(&expected);
+        let actual_norm = normalize_newlines(actual);
+        if actual_norm == expected_norm {
             let mut c = CheckResult::pass(name).with_detail("snapshot matched");
             c.tags = vec!["fixtures".to_string(), "golden".to_string()];
             c.evidence = vec![
@@ -132,7 +151,15 @@ impl Golden {
             return c;
         }
 
-        let diff = line_diff(&expected, actual);
+        let mut diff = line_diff(&expected_norm, &actual_norm);
+        if !diff
+            .lines()
+            .any(|l| l.starts_with('-') || l.starts_with('+'))
+        {
+            // Every line compares equal, so the difference is invisible in
+            // a line diff: a missing or extra final newline, or a bare `\r`.
+            diff.push_str("note: the lines are identical; the snapshot and the actual value differ only in the final newline or a bare carriage return\n");
+        }
         let mut c = CheckResult::fail(name, Severity::Error)
             .with_detail(format!("snapshot mismatch:\n{}", diff));
         c.tags = vec![
@@ -172,8 +199,9 @@ impl Golden {
 /// preview of the first differing region — *not* a line-based diff,
 /// because binary content has no meaningful line structure.
 ///
-/// Set the `DEV_FIXTURES_UPDATE_GOLDEN` environment variable to update
-/// snapshots on intentional changes.
+/// Set the `DEV_FIXTURES_UPDATE_GOLDEN` environment variable (for
+/// example to `1`) to update snapshots on intentional changes; see the
+/// [module docs](self) for the values that leave it off.
 ///
 /// # Example
 ///
@@ -347,63 +375,86 @@ fn hex_preview(bytes: &[u8], from: usize, len: usize) -> String {
     format!("offset {}: {}", from, hex)
 }
 
-/// `true` if `DEV_FIXTURES_UPDATE_GOLDEN` is set to a non-empty value.
+/// Name of the environment variable that turns on update mode.
+const UPDATE_ENV: &str = "DEV_FIXTURES_UPDATE_GOLDEN";
+
+/// `true` if `DEV_FIXTURES_UPDATE_GOLDEN` is set to a value that means
+/// "on".
+///
+/// Unset, empty, `0`, `false`, `no` and `off` (any case, surrounding
+/// whitespace ignored) mean off. Any other value, including a value that
+/// is not valid Unicode, means on.
 fn update_mode_enabled() -> bool {
-    std::env::var("DEV_FIXTURES_UPDATE_GOLDEN")
-        .map(|v| !v.is_empty())
-        .unwrap_or(false)
+    match std::env::var_os(UPDATE_ENV) {
+        None => false,
+        Some(v) => update_value_enables(&v.to_string_lossy()),
+    }
 }
+
+fn update_value_enables(v: &str) -> bool {
+    let v = v.trim();
+    !(v.is_empty()
+        || v == "0"
+        || v.eq_ignore_ascii_case("false")
+        || v.eq_ignore_ascii_case("no")
+        || v.eq_ignore_ascii_case("off"))
+}
+
+/// Replace every `\r\n` with `\n`. Borrows when there is nothing to do.
+fn normalize_newlines(s: &str) -> Cow<'_, str> {
+    if s.contains("\r\n") {
+        Cow::Owned(s.replace("\r\n", "\n"))
+    } else {
+        Cow::Borrowed(s)
+    }
+}
+
+/// Largest LCS table (in cells) [`line_diff`] builds. Above this, the
+/// differing middle section is reported as a block of removed lines
+/// followed by a block of added lines. 4M cells of `u32` is 16 MiB.
+const MAX_LCS_CELLS: usize = 4_000_000;
 
 /// Produce a line-based diff in unified-diff-ish format using LCS.
 ///
 /// Lines unique to `expected` are prefixed with `-`. Lines unique to
 /// `actual` are prefixed with `+`. Common lines are prefixed with ` `.
 ///
-/// Uses the standard longest-common-subsequence algorithm (O(N*M)
-/// time/space) so insertions and deletions are handled correctly:
-/// inserting one line in the middle produces one `+` line, not a
-/// cascade of edit pairs from the position-aligned naive diff.
+/// The common leading and trailing lines are matched first; the
+/// standard longest-common-subsequence algorithm then runs on the
+/// differing middle section only, so insertions and deletions are
+/// handled correctly: inserting one line in the middle produces one `+`
+/// line, not a cascade of edit pairs from the position-aligned naive
+/// diff. LCS needs O(N*M) memory, so when the middle section would need
+/// more than [`MAX_LCS_CELLS`] cells it is shown as all `-` lines then
+/// all `+` lines instead of allocating a huge table.
 ///
 /// Hand-rolled, no external dependencies.
 fn line_diff(expected: &str, actual: &str) -> String {
     let exp_lines: Vec<&str> = expected.lines().collect();
     let act_lines: Vec<&str> = actual.lines().collect();
-    let n = exp_lines.len();
-    let m = act_lines.len();
 
-    // Build LCS length table.
-    // lcs[i][j] = length of LCS of exp_lines[..i] and act_lines[..j].
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-    for i in 0..n {
-        for j in 0..m {
-            lcs[i + 1][j + 1] = if exp_lines[i] == act_lines[j] {
-                lcs[i][j] + 1
-            } else {
-                lcs[i][j + 1].max(lcs[i + 1][j])
-            };
-        }
-    }
+    let prefix = exp_lines
+        .iter()
+        .zip(act_lines.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = exp_lines[prefix..]
+        .iter()
+        .rev()
+        .zip(act_lines[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let exp_mid = &exp_lines[prefix..exp_lines.len() - suffix];
+    let act_mid = &act_lines[prefix..act_lines.len() - suffix];
 
-    // Walk back to produce the edit script.
-    let mut ops: Vec<(char, &str)> = Vec::new();
-    let (mut i, mut j) = (n, m);
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && exp_lines[i - 1] == act_lines[j - 1] {
-            ops.push((' ', exp_lines[i - 1]));
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j]) {
-            ops.push(('+', act_lines[j - 1]));
-            j -= 1;
-        } else if i > 0 {
-            ops.push(('-', exp_lines[i - 1]));
-            i -= 1;
-        } else {
-            // Should be unreachable; defensive.
-            break;
-        }
-    }
-    ops.reverse();
+    let mut ops: Vec<(char, &str)> = Vec::with_capacity(exp_lines.len() + act_lines.len());
+    ops.extend(exp_lines[..prefix].iter().map(|l| (' ', *l)));
+    lcs_ops(exp_mid, act_mid, &mut ops);
+    ops.extend(
+        exp_lines[exp_lines.len() - suffix..]
+            .iter()
+            .map(|l| (' ', *l)),
+    );
 
     let mut out = String::new();
     for (sign, line) in ops {
@@ -412,6 +463,49 @@ fn line_diff(expected: &str, actual: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Append the edit script for `exp` -> `act` to `ops`.
+fn lcs_ops<'a>(exp: &[&'a str], act: &[&'a str], ops: &mut Vec<(char, &'a str)>) {
+    let n = exp.len();
+    let m = act.len();
+    let cells = (n + 1).saturating_mul(m + 1);
+    if n == 0 || m == 0 || cells > MAX_LCS_CELLS {
+        ops.extend(exp.iter().map(|l| ('-', *l)));
+        ops.extend(act.iter().map(|l| ('+', *l)));
+        return;
+    }
+
+    // Flat LCS length table: lcs[i * w + j] = LCS of exp[..i], act[..j].
+    let w = m + 1;
+    let mut lcs = vec![0u32; cells];
+    for i in 0..n {
+        for j in 0..m {
+            lcs[(i + 1) * w + j + 1] = if exp[i] == act[j] {
+                lcs[i * w + j] + 1
+            } else {
+                lcs[i * w + j + 1].max(lcs[(i + 1) * w + j])
+            };
+        }
+    }
+
+    // Walk back to produce the edit script.
+    let start = ops.len();
+    let (mut i, mut j) = (n, m);
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && exp[i - 1] == act[j - 1] {
+            ops.push((' ', exp[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || lcs[i * w + j - 1] >= lcs[(i - 1) * w + j]) {
+            ops.push(('+', act[j - 1]));
+            j -= 1;
+        } else {
+            ops.push(('-', exp[i - 1]));
+            i -= 1;
+        }
+    }
+    ops[start..].reverse();
 }
 
 #[cfg(test)]
@@ -472,6 +566,105 @@ mod tests {
         assert_eq!(c.verdict, Verdict::Skip);
         assert!(c.has_tag("updated"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn crlf_snapshot_matches_lf_actual_and_back() {
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("snap.txt");
+        fs::write(&path, "line one\r\nline two\r\n").unwrap();
+        let c = Golden::new(&path).compare("crlf", "line one\nline two\n");
+        assert_eq!(c.verdict, Verdict::Pass, "{:?}", c.detail);
+
+        fs::write(&path, "line one\nline two\n").unwrap();
+        let c = Golden::new(&path).compare("crlf", "line one\r\nline two\r\n");
+        assert_eq!(c.verdict, Verdict::Pass, "{:?}", c.detail);
+    }
+
+    #[test]
+    fn crlf_snapshot_with_real_change_shows_only_that_line() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(UPDATE_ENV);
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("snap.txt");
+        fs::write(&path, "a\r\nb\r\nc\r\n").unwrap();
+        let c = Golden::new(&path).compare("x", "a\nB\nc\n");
+        assert_eq!(c.verdict, Verdict::Fail);
+        let detail = c.detail.unwrap();
+        assert!(detail.contains("-b\n+B\n"), "{detail}");
+        assert!(!detail.contains('\r'));
+    }
+
+    #[test]
+    fn trailing_newline_only_mismatch_explains_itself() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(UPDATE_ENV);
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("snap.txt");
+        fs::write(&path, "hello\n").unwrap();
+        let c = Golden::new(&path).compare("x", "hello");
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert!(c
+            .detail
+            .unwrap()
+            .contains("differ only in the final newline"));
+    }
+
+    #[test]
+    fn update_env_values() {
+        for on in ["1", "true", "yes", "on", "always", " 1 "] {
+            assert!(update_value_enables(on), "{on:?} should enable");
+        }
+        for off in ["", " ", "0", "false", "FALSE", "No", "off", " off "] {
+            assert!(!update_value_enables(off), "{off:?} should not enable");
+        }
+    }
+
+    #[test]
+    fn update_env_zero_does_not_overwrite() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("snap.txt");
+        fs::write(&path, "old\n").unwrap();
+        std::env::set_var(UPDATE_ENV, "0");
+        let c = Golden::new(&path).compare("greet", "new\n");
+        let b = BinaryGolden::new(dir.path().join("snap.bin"));
+        fs::write(b.path(), [1u8]).unwrap();
+        let cb = b.compare("bin", &[2u8]);
+        std::env::remove_var(UPDATE_ENV);
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
+        assert_eq!(cb.verdict, Verdict::Fail);
+        assert_eq!(fs::read(b.path()).unwrap(), vec![1u8]);
+    }
+
+    #[test]
+    fn line_diff_large_inputs_use_bounded_memory() {
+        // 5000 x 5000 distinct lines would need a 25M-cell table; the
+        // diff falls back to a removed block followed by an added block.
+        let exp: String = (0..5000).map(|i| format!("e{i}\n")).collect();
+        let act: String = (0..5000).map(|i| format!("a{i}\n")).collect();
+        let d = line_diff(&exp, &act);
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines.len(), 10_000);
+        assert_eq!(lines[0], "-e0");
+        assert_eq!(lines[4999], "-e4999");
+        assert_eq!(lines[5000], "+a0");
+    }
+
+    #[test]
+    fn line_diff_trims_common_prefix_and_suffix() {
+        // One changed line in the middle of a big file: exact output and
+        // no quadratic table (prefix/suffix are matched first).
+        let exp: Vec<String> = (0..20_000).map(|i| format!("line {i}")).collect();
+        let mut act = exp.clone();
+        act[10_000] = "changed".to_string();
+        let exp_s = exp.join("\n");
+        let act_s = act.join("\n");
+        let d = line_diff(&exp_s, &act_s);
+        let changed: Vec<&str> = d.lines().filter(|l| !l.starts_with(' ')).collect();
+        assert_eq!(changed, vec!["-line 10000", "+changed"]);
+        assert_eq!(d.lines().count(), 20_001);
     }
 
     #[test]

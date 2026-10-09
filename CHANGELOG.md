@@ -7,26 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.5] - 2026-05-18
+## [0.9.5] - 2026-10-09
 
-`tempfile` → `mod-tempdir` swap. MSRV drops to 1.75.
+`tempfile` -> `mod-tempdir` swap, MSRV 1.75, and path-safety and
+golden-file fixes from a review pass.
+
+### Added
+
+- `VERSION` constant with the crate version as compiled, so tools that
+  bundle this crate can report what is actually linked.
+
+### Fixed
+
+- Fixture paths could escape the temp root. `FileTree::build`,
+  `TempProjectBuilder::build` and `rust_workspace` members wrote `..`
+  paths, absolute paths, drive or UNC prefixes, and writes through a
+  symlink pointing outside the root anywhere on disk. They are now
+  rejected with `InvalidInput`.
+- `rust_crate` and `rust_workspace` put names and versions into the
+  generated `Cargo.toml` without TOML escaping.
+- Golden files:
+  - Snapshots checked out with CRLF line endings (`core.autocrlf` on
+    Windows) failed against LF output with a diff that looked empty.
+    Text goldens now treat CRLF and LF as equal; `BinaryGolden` still
+    compares exact bytes.
+  - `DEV_FIXTURES_UPDATE_GOLDEN=0` or `=false` turned update mode on and
+    rewrote snapshots. Empty, `0`, `false`, `no` and `off` now mean off.
+  - The diff allocated an N x M table, so two 10,000-line files needed
+    about 800 MB. It now matches the common prefix and suffix first and
+    caps the table size.
+  - A difference only in the final newline now says so.
+- `mock::json::validate` accepted invalid JSON (`--1`, `1.2.3`, `01`,
+  `\q`, raw newlines in strings) and overflowed the stack on deeply
+  nested input. It now follows the RFC 8259 grammar for numbers and
+  escapes and stops at 128 levels of nesting.
+- `adversarial::oversized_zeros` silently truncated the size on 32-bit
+  targets; it now returns an error.
 
 ### Changed
 
-- **Internal `tempfile = "3"` dependency swapped to `mod-tempdir = "1"`.** The `TempProject` struct now holds a `mod_tempdir::TempDir` instead of a `tempfile::TempDir`. Auto-cleanup-on-drop semantics are preserved; the public API of `TempProject` is unchanged. Downstream callers see no behavior difference.
-- **Doc examples and integration tests updated.** Every `tempfile::tempdir()` call site across `src/adversarial.rs`, `src/golden.rs`, `src/tree.rs`, and `tests/smoke.rs` now uses `mod_tempdir::TempDir::new()`. Both APIs return `io::Result<TempDir>` so the call shape stays identical.
-- **MSRV lowered from `1.85` to `1.75`.** Killing the `tempfile → getrandom 0.4.2 → edition2024` transitive chain unblocks the rollback. `mod-tempdir` is MSRV 1.75 with zero `std`-external runtime deps.
-- README MSRV badge updated from `1.85+` to `1.75+`. Install snippet bumped to `dev-fixtures = "0.9.5"`.
+- **Internal `tempfile = "3"` dependency swapped to `mod-tempdir = "1"`.**
+  `TempProject` now holds a `mod_tempdir::TempDir`. No `tempfile` type
+  was ever part of the public API (it was a private field), so this is
+  not a breaking change; `cargo semver-checks` agrees. Cleanup on drop
+  works as before, including on panic and with read-only files inside.
+- **MSRV lowered from `1.85` to `1.75`.** Dropping `tempfile` removed
+  the `getrandom 0.4.2 -> edition2024` chain. CI's MSRV job now builds
+  on 1.75 against an MSRV-compatible lockfile; it was still pinned to
+  1.85.
+- The local `mod-tempdir` path dependency now points at
+  `../../mod-collection/mod-tempdir`, where that crate actually lives,
+  and CI clones it there. Published builds use crates.io as before.
 
 ### Removed
 
-- `tempfile` dropped from `[dependencies]`. `tempfile` was the sole reason the entire `dev-*` collection was pinned to MSRV 1.85; eliminating it here unlocks the suite-wide rollback.
+- `tempfile` dropped from `[dependencies]`.
 
-### Notes
+### Documentation
 
-- Public `TempProject`, `TempProjectBuilder`, `FixtureProducer`, `Golden`, `BinaryGolden`, `tree::*`, `adversarial::*`, and `mock::*` APIs unchanged. Existing callers compile against 0.9.5 without source edits.
-- Library, examples, and tests all build clean on Rust 1.75 (verified locally with `cargo +1.75 check --all-features`).
-- No new transitive dependencies. `mod-tempdir` 1.0.0 has zero runtime deps outside `std`.
+- `csv::parse` docs on trailing blank lines were wrong.
+- Windows strips the trailing dot from the `trailing.dot.` adversarial
+  name; documented.
+- README: path rules, CRLF handling, update-mode values, MSRV 1.75.
 
 [0.9.5]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.5
 

@@ -32,8 +32,18 @@ use std::path::Path;
 /// oversized_zeros(&path, 4096).unwrap();
 /// assert_eq!(std::fs::metadata(&path).unwrap().len(), 4096);
 /// ```
+///
+/// On targets where `size_bytes` does not fit in `usize` (32-bit), this
+/// returns [`io::ErrorKind::InvalidInput`] instead of silently writing a
+/// truncated size.
 pub fn oversized_zeros(path: &Path, size_bytes: u64) -> io::Result<()> {
-    let buf = vec![0u8; size_bytes as usize];
+    let len = usize::try_from(size_bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("size_bytes {size_bytes} does not fit in memory on this target; use oversized_sparse"),
+        )
+    })?;
+    let buf = vec![0u8; len];
     fs::write(path, buf)
 }
 
@@ -124,6 +134,11 @@ pub fn random_bytes(path: &Path, n: usize, seed: u64) -> io::Result<()> {
 /// long names, Unicode, emoji, leading dot.
 ///
 /// Returns up to `count` names; the available pool is finite (~10).
+///
+/// Windows strips a trailing `.` from file names, so creating
+/// `trailing.dot.` there produces a file named `trailing.dot`. Tests that
+/// create these names and then look them up by the original string
+/// should expect that.
 ///
 /// # Example
 ///

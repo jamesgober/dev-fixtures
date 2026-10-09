@@ -136,9 +136,13 @@ pub mod csv {
     /// a general-purpose CSV parser.
     ///
     /// Returns `(headers, rows)`. Each row has the same length as
-    /// `headers` for well-formed input. Trailing empty lines are
-    /// ignored. Returns `Err` with a one-line message on malformed
-    /// input (e.g. unterminated quoted field).
+    /// `headers` for well-formed input. The line terminator after the
+    /// last row (`\n` or `\r\n`) is optional and does not produce an
+    /// extra row. Any other empty line, including a second trailing
+    /// newline, is a row with one empty field, because that is how
+    /// [`generate`] writes a single-column row whose value is empty.
+    /// Returns `Err` with a one-line message on malformed input (e.g.
+    /// unterminated quoted field).
     ///
     /// # Example
     ///
@@ -305,8 +309,16 @@ pub mod json_array {
     /// Minimal JSON structural validator.
     ///
     /// Returns `Ok(())` if `s` is a syntactically valid JSON value
-    /// (object, array, string, number, true/false/null). Does NOT
-    /// validate semantics (e.g. duplicate keys are accepted).
+    /// (object, array, string, number, true/false/null) per RFC 8259:
+    /// numbers follow the JSON grammar (no leading zeros, no bare `.` or
+    /// exponent), strings reject unknown escapes, malformed `\u` escapes
+    /// and raw control characters. Does NOT validate semantics (e.g.
+    /// duplicate keys are accepted, and `\u` escapes are not checked for
+    /// unpaired surrogates).
+    ///
+    /// Nesting deeper than 128 arrays/objects is rejected with an error
+    /// instead of recursing further, so hostile input cannot overflow the
+    /// stack.
     ///
     /// Hand-rolled, no `serde_json` dependency at the public surface.
     ///
@@ -333,9 +345,14 @@ pub mod json_array {
         Ok(())
     }
 
+    /// Deepest array/object nesting [`validate_json`] accepts. Matches
+    /// `serde_json`'s default recursion limit.
+    const MAX_JSON_DEPTH: usize = 128;
+
     struct MiniJsonParser<'a> {
         bytes: &'a [u8],
         pos: usize,
+        depth: usize,
     }
 
     impl<'a> MiniJsonParser<'a> {
@@ -343,6 +360,7 @@ pub mod json_array {
             Self {
                 bytes: s.as_bytes(),
                 pos: 0,
+                depth: 0,
             }
         }
 
@@ -360,8 +378,24 @@ pub mod json_array {
                 return Err("unexpected end of input".to_string());
             }
             match self.bytes[self.pos] {
-                b'{' => self.parse_object(),
-                b'[' => self.parse_array(),
+                open @ (b'{' | b'[') => {
+                    // Bounded recursion: deeply nested input must return an
+                    // error, not overflow the stack.
+                    if self.depth >= MAX_JSON_DEPTH {
+                        return Err(format!(
+                            "invalid JSON: nesting deeper than {} levels at position {}",
+                            MAX_JSON_DEPTH, self.pos
+                        ));
+                    }
+                    self.depth += 1;
+                    let r = if open == b'{' {
+                        self.parse_object()
+                    } else {
+                        self.parse_array()
+                    };
+                    self.depth -= 1;
+                    r
+                }
                 b'"' => self.parse_string(),
                 b't' | b'f' => self.parse_bool(),
                 b'n' => self.parse_null(),
@@ -448,11 +482,37 @@ pub mod json_array {
                         return Ok(());
                     }
                     b'\\' => {
+                        let at = self.pos;
                         self.pos += 1;
-                        if self.pos >= self.bytes.len() {
-                            return Err("unterminated escape in string".to_string());
+                        match self.peek() {
+                            None => return Err("unterminated escape in string".to_string()),
+                            Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => {
+                                self.pos += 1;
+                            }
+                            Some(b'u') => {
+                                self.pos += 1;
+                                let hex = self.bytes.get(self.pos..self.pos + 4);
+                                if !hex.is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit)) {
+                                    return Err(format!(
+                                        "invalid JSON: bad \\u escape at position {}",
+                                        at
+                                    ));
+                                }
+                                self.pos += 4;
+                            }
+                            Some(_) => {
+                                return Err(format!(
+                                    "invalid JSON: unknown escape at position {}",
+                                    at
+                                ));
+                            }
                         }
-                        self.pos += 1;
+                    }
+                    c if c < 0x20 => {
+                        return Err(format!(
+                            "invalid JSON: unescaped control character in string at position {}",
+                            self.pos
+                        ));
                     }
                     _ => self.pos += 1,
                 }
@@ -481,31 +541,46 @@ pub mod json_array {
             }
         }
 
+        /// RFC 8259 number: `-? (0 | [1-9][0-9]*) (\.[0-9]+)? ([eE][+-]?[0-9]+)?`.
         fn parse_number(&mut self) -> Result<(), String> {
             let start = self.pos;
+            let invalid = || format!("invalid number at position {}", start);
             if self.peek() == Some(b'-') {
                 self.pos += 1;
             }
-            while self.pos < self.bytes.len() {
-                let c = self.bytes[self.pos];
-                if c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-') {
-                    self.pos += 1;
-                } else {
-                    break;
-                }
+            match self.peek() {
+                Some(b'0') => self.pos += 1,
+                Some(b'1'..=b'9') => self.skip_digits(),
+                _ => return Err(invalid()),
             }
-            if self.pos == start || (self.peek_at(start) == Some(b'-') && self.pos == start + 1) {
-                return Err(format!("invalid number at position {}", start));
+            if self.peek() == Some(b'.') {
+                self.pos += 1;
+                if !self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    return Err(invalid());
+                }
+                self.skip_digits();
+            }
+            if matches!(self.peek(), Some(b'e' | b'E')) {
+                self.pos += 1;
+                if matches!(self.peek(), Some(b'+' | b'-')) {
+                    self.pos += 1;
+                }
+                if !self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    return Err(invalid());
+                }
+                self.skip_digits();
             }
             Ok(())
         }
 
-        fn peek(&self) -> Option<u8> {
-            self.bytes.get(self.pos).copied()
+        fn skip_digits(&mut self) {
+            while self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                self.pos += 1;
+            }
         }
 
-        fn peek_at(&self, idx: usize) -> Option<u8> {
-            self.bytes.get(idx).copied()
+        fn peek(&self) -> Option<u8> {
+            self.bytes.get(self.pos).copied()
         }
     }
 }
@@ -669,6 +744,70 @@ mod tests {
         ] {
             assert!(json_array::validate_json(s).is_ok(), "should accept: {}", s);
         }
+    }
+
+    #[test]
+    fn json_validate_number_grammar() {
+        for ok in ["0", "-0", "12", "-1.5", "1e9", "1E+2", "2.5e-3", "[0,1,-2]"] {
+            assert!(json_array::validate_json(ok).is_ok(), "should accept: {ok}");
+        }
+        for bad in [
+            "--1", "1.2.3", "1e", "1e+", "01", "-", ".5", "1.", "+1", "1-2", "0x10",
+        ] {
+            assert!(
+                json_array::validate_json(bad).is_err(),
+                "should reject: {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_validate_string_escapes() {
+        for ok in [
+            r#""\"\\\/\b\f\n\r\t""#,
+            r#""é😀""#,
+            "\"caf\u{e9} \u{2705}\"",
+        ] {
+            assert!(json_array::validate_json(ok).is_ok(), "should accept: {ok}");
+        }
+        for bad in [
+            r#""\q""#,
+            r#""\u12""#,
+            r#""\u12G4""#,
+            "\"raw\nnewline\"",
+            "\"tab\there\"",
+            "\"nul\u{0}\"",
+        ] {
+            assert!(
+                json_array::validate_json(bad).is_err(),
+                "should reject: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_validate_deep_nesting_errors_instead_of_overflowing() {
+        let deep = "[".repeat(100_000) + &"]".repeat(100_000);
+        let err = json_array::validate_json(&deep).unwrap_err();
+        assert!(err.contains("nesting deeper than 128"), "{err}");
+        let ok = "[".repeat(128) + &"]".repeat(128);
+        assert!(json_array::validate_json(&ok).is_ok());
+        let obj = "{\"a\":".repeat(129) + "1" + &"}".repeat(129);
+        assert!(json_array::validate_json(&obj).is_err());
+    }
+
+    #[test]
+    fn csv_parse_final_newline_and_blank_lines() {
+        // Final terminator is optional.
+        let (_, a) = csv::parse("h\n1\n").unwrap();
+        let (_, b) = csv::parse("h\n1").unwrap();
+        assert_eq!(a, b);
+        // Single-column empty value round-trips.
+        let s = csv::generate(&["h"], 2, 0, |_| vec![String::new()]);
+        assert_eq!(s, "h\n\n\n");
+        let (h, rows) = csv::parse(&s).unwrap();
+        assert_eq!(h, vec!["h"]);
+        assert_eq!(rows, vec![vec![String::new()], vec![String::new()]]);
     }
 
     #[test]
