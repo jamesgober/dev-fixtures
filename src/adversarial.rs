@@ -27,7 +27,7 @@ use std::path::Path;
 ///
 /// ```
 /// use dev_fixtures::adversarial::oversized_zeros;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("big.bin");
 /// oversized_zeros(&path, 4096).unwrap();
 /// assert_eq!(std::fs::metadata(&path).unwrap().len(), 4096);
@@ -47,18 +47,19 @@ pub fn oversized_zeros(path: &Path, size_bytes: u64) -> io::Result<()> {
     fs::write(path, buf)
 }
 
-/// Write `size_bytes` to `path` using `set_len`, which on most
-/// platforms creates a sparse file (no actual disk space used until
-/// written to).
+/// Extend `path` to `size_bytes` with `set_len`.
 ///
-/// Useful for testing very large file handling without consuming
-/// disk space.
+/// On Linux and macOS file systems that support it (ext4, XFS, Btrfs,
+/// APFS) this gives a sparse file: no disk space is used until bytes
+/// are written. On Windows the file is not marked sparse, so NTFS
+/// allocates the full length; keep sizes there within the free space
+/// of the test machine.
 ///
 /// # Example
 ///
 /// ```
 /// use dev_fixtures::adversarial::oversized_sparse;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("sparse.bin");
 /// oversized_sparse(&path, 1_000_000).unwrap();
 /// assert_eq!(std::fs::metadata(&path).unwrap().len(), 1_000_000);
@@ -82,7 +83,7 @@ pub fn oversized_sparse(path: &Path, size_bytes: u64) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::adversarial::malformed_utf8;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("bad.txt");
 /// malformed_utf8(&path).unwrap();
 /// let bytes = std::fs::read(&path).unwrap();
@@ -102,7 +103,7 @@ pub fn malformed_utf8(path: &Path) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::adversarial::random_bytes;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("rand.bin");
 /// random_bytes(&path, 32, 42).unwrap();
 /// let a = std::fs::read(&path).unwrap();

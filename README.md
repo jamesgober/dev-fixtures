@@ -38,7 +38,7 @@ your test against it, and have the directory cleaned up on drop.
 
 ```toml
 [dependencies]
-dev-fixtures = "0.9.5"
+dev-fixtures = "0.9.6"
 ```
 
 ```rust
@@ -59,7 +59,7 @@ let project = TempProject::new()
 ```rust
 use dev_fixtures::tree::{rust_workspace, FileTree};
 
-let dir = mod_tempdir::TempDir::new().unwrap();
+let dir = dev_fixtures::TempDir::new().unwrap();
 
 // One-line workspace.
 rust_workspace(dir.path(), &["alpha", "beta"]).unwrap();
@@ -83,7 +83,7 @@ of touching files elsewhere.
 ```rust
 use dev_fixtures::adversarial;
 
-let dir = mod_tempdir::TempDir::new().unwrap();
+let dir = dev_fixtures::TempDir::new().unwrap();
 
 adversarial::oversized_zeros(&dir.path().join("big.bin"), 1_000_000).unwrap();
 adversarial::malformed_utf8(&dir.path().join("bad.txt")).unwrap();
@@ -97,7 +97,7 @@ let names = adversarial::unusual_names(5); // emoji, Unicode, dotted, etc.
 ```rust
 use dev_fixtures::golden::Golden;
 
-let dir = mod_tempdir::TempDir::new().unwrap();
+let dir = dev_fixtures::TempDir::new().unwrap();
 let g = Golden::new(dir.path().join("snap.txt"));
 
 // First call creates the snapshot (verdict=Skip, tag=created).
@@ -109,7 +109,13 @@ assert!(matches!(check.verdict, dev_report::Verdict::Pass));
 
 Set `DEV_FIXTURES_UPDATE_GOLDEN=1` to regenerate snapshots on
 intentional changes. Empty, `0`, `false`, `no` and `off` leave update
-mode off. Text snapshots treat CRLF and LF line endings as equal, so a
+mode off.
+
+When the `CI` environment variable is set (to anything but those same
+"off" values), a missing snapshot is not created. The check fails with
+a `missing` tag instead, because a snapshot that was deleted, renamed
+or never committed would otherwise pass every CI run. Commit the
+snapshot, or set `DEV_FIXTURES_UPDATE_GOLDEN=1` to create it in CI. Text snapshots treat CRLF and LF line endings as equal, so a
 snapshot checked out with `core.autocrlf` on Windows still matches; use
 `BinaryGolden` when the exact bytes matter.
 

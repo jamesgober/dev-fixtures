@@ -63,9 +63,21 @@ pub mod golden;
 pub mod mock;
 pub mod tree;
 
+/// Temporary directory that is deleted on drop, re-exported from
+/// `mod-tempdir` so the examples here work with `dev-fixtures` as the
+/// only dependency.
+///
+/// # Example
+///
+/// ```
+/// let dir = dev_fixtures::TempDir::new().unwrap();
+/// assert!(dir.path().is_dir());
+/// ```
+pub use mod_tempdir::TempDir;
+
 /// A temporary project directory that auto-cleans on drop.
 ///
-/// Holds an internal [`mod_tempdir::TempDir`]. The temp directory is
+/// Holds an internal [`TempDir`]. The temp directory is
 /// deleted when this value is dropped.
 ///
 /// # Example

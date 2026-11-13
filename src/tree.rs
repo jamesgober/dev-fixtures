@@ -110,7 +110,7 @@ enum Entry {
 ///
 /// ```
 /// use dev_fixtures::tree::FileTree;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// FileTree::new(dir.path())
 ///     .file("README.md", "hello")
 ///     .dir("src")
@@ -222,7 +222,7 @@ impl FileTree {
 ///
 /// ```
 /// use dev_fixtures::tree::rust_crate;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// rust_crate(dir.path(), "sample", "0.1.0").unwrap();
 /// assert!(dir.path().join("Cargo.toml").exists());
 /// assert!(dir.path().join("src/lib.rs").exists());
@@ -253,7 +253,7 @@ pub fn rust_crate(root: &Path, name: &str, version: &str) -> io::Result<()> {
 ///
 /// ```
 /// use dev_fixtures::tree::rust_workspace;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// rust_workspace(dir.path(), &["a", "b"]).unwrap();
 /// assert!(dir.path().join("a/Cargo.toml").exists());
 /// assert!(dir.path().join("b/Cargo.toml").exists());
@@ -267,10 +267,12 @@ pub fn rust_workspace(root: &Path, members: &[&str]) -> io::Result<()> {
     for m in members {
         join_inside(root, Path::new(m))?;
     }
-    let members_lines: String = members
-        .iter()
-        .map(|m| format!("    \"{}\",\n", toml_basic_string_escape(m)))
-        .collect();
+    let mut members_lines = String::new();
+    for m in members {
+        members_lines.push_str("    \"");
+        members_lines.push_str(&toml_basic_string_escape(m));
+        members_lines.push_str("\",\n");
+    }
     let workspace_toml = format!(
         "[workspace]\nresolver = \"2\"\nmembers = [\n{}]\n",
         members_lines

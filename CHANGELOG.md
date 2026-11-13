@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-12
+
+Missing snapshots fail in CI, and the crate builds from a plain clone.
+
+### Added
+
+- `dev_fixtures::TempDir`, a re-export of `mod_tempdir::TempDir`. The
+  README and rustdoc examples use it, so they compile with
+  `dev-fixtures` as the only dependency.
+
+### Fixed
+
+- A missing golden snapshot was always created and reported as `Skip`,
+  in CI too, where the new file is thrown away with the runner. A
+  snapshot that was deleted, renamed or never committed passed every
+  run. When `CI` is set, `Golden::compare` and `BinaryGolden::compare`
+  now return `Fail (Error)` tagged `missing` and write nothing, unless
+  `DEV_FIXTURES_UPDATE_GOLDEN` is on.
+- `mod-tempdir` and `dev-report` were path dependencies on sibling
+  checkouts, so a fresh clone did not build and CI tested against
+  their unreleased heads. Both now come from crates.io
+  (`mod-tempdir` 1.2, `dev-report` 0.9.9).
+
+### Documentation
+
+- `adversarial::oversized_sparse` no longer claims a sparse file on
+  Windows, where NTFS allocates the full length.
+
+[0.9.6]: https://github.com/jamesgober/dev-fixtures/releases/tag/v0.9.6
+
 ## [0.9.5] - 2026-10-09
 
 `tempfile` -> `mod-tempdir` swap, MSRV 1.75, and path-safety and

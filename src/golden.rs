@@ -11,6 +11,13 @@
 //! leave update mode off, so `DEV_FIXTURES_UPDATE_GOLDEN=0` in a CI
 //! config does not rewrite snapshots.
 //!
+//! A missing snapshot is created on first use and reported as `Skip`,
+//! except when the `CI` environment variable is set (to anything but
+//! the "off" values above). In CI a missing snapshot is a `Fail` tagged
+//! `missing`: a snapshot that was deleted, renamed or never committed
+//! would otherwise pass every run while the file written on the runner
+//! is thrown away. Set `DEV_FIXTURES_UPDATE_GOLDEN` to create it anyway.
+//!
 //! [`Golden`] compares text with `\r\n` and `\n` treated as the same
 //! line ending, so snapshots checked out with Git's `core.autocrlf` on
 //! Windows still match. Use [`BinaryGolden`] when the exact bytes,
@@ -29,7 +36,7 @@ use dev_report::{CheckResult, Evidence, Severity};
 ///
 /// ```
 /// use dev_fixtures::golden::Golden;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("snap.txt");
 /// std::fs::write(&path, "hello\n").unwrap();
 ///
@@ -44,7 +51,8 @@ pub struct Golden {
 impl Golden {
     /// Build a golden bound to a path on disk. The path may not exist
     /// yet; on first run the snapshot is created and verdict is `Skip`
-    /// with a `created` tag.
+    /// with a `created` tag. In CI (the `CI` environment variable set)
+    /// a missing snapshot is a `Fail` instead; see [`Golden::compare`].
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
@@ -60,6 +68,8 @@ impl Golden {
     /// - Snapshot matches -> `Pass`.
     /// - Snapshot missing -> `Skip` with `created` tag (the snapshot
     ///   is written to disk for the first time).
+    /// - Snapshot missing, `CI` set and update mode off -> `Fail (Error)`
+    ///   with `missing` tag. Nothing is written.
     /// - Snapshot mismatch + update mode (`DEV_FIXTURES_UPDATE_GOLDEN`
     ///   set to a value other than empty, `0`, `false`, `no` or `off`)
     ///   -> `Skip` with `updated` tag (the snapshot is overwritten with
@@ -72,6 +82,9 @@ impl Golden {
         let evidence_base = vec![Evidence::numeric("actual_bytes", actual.len() as f64)];
 
         if !self.path.exists() {
+            if let Some(c) = missing_in_ci(&name, &self.path, false, &evidence_base) {
+                return c;
+            }
             // First run: write the snapshot, return Skip.
             if let Err(e) = self.write_snapshot(actual) {
                 let mut c = CheckResult::fail(name, Severity::Error)
@@ -207,7 +220,7 @@ impl Golden {
 ///
 /// ```
 /// use dev_fixtures::golden::BinaryGolden;
-/// let dir = mod_tempdir::TempDir::new().unwrap();
+/// let dir = dev_fixtures::TempDir::new().unwrap();
 /// let path = dir.path().join("snap.bin");
 /// std::fs::write(&path, &[0u8, 1, 2, 3]).unwrap();
 ///
@@ -236,6 +249,8 @@ impl BinaryGolden {
     /// Verdicts mirror [`Golden::compare`]:
     /// - Match -> `Pass`.
     /// - Missing -> `Skip` with `created` tag (snapshot is written).
+    /// - Missing, `CI` set and update mode off -> `Fail (Error)` with
+    ///   `missing` tag (nothing is written).
     /// - Mismatch + `DEV_FIXTURES_UPDATE_GOLDEN` set -> `Skip` with `updated`.
     /// - Mismatch -> `Fail (Error)` with `regression` tag, byte-length and
     ///   first-diff-offset evidence.
@@ -244,6 +259,9 @@ impl BinaryGolden {
         let evidence_base = vec![Evidence::numeric("actual_bytes", actual.len() as f64)];
 
         if !self.path.exists() {
+            if let Some(c) = missing_in_ci(&name, &self.path, true, &evidence_base) {
+                return c;
+            }
             if let Err(e) = self.write_snapshot(actual) {
                 let mut c = CheckResult::fail(name, Severity::Error)
                     .with_detail(format!("could not create snapshot: {}", e));
@@ -377,6 +395,40 @@ fn hex_preview(bytes: &[u8], from: usize, len: usize) -> String {
 
 /// Name of the environment variable that turns on update mode.
 const UPDATE_ENV: &str = "DEV_FIXTURES_UPDATE_GOLDEN";
+
+/// `true` when running in CI: `CI` is set to a value other than empty,
+/// `0`, `false`, `no` or `off`.
+fn ci_mode_enabled() -> bool {
+    match std::env::var_os("CI") {
+        None => false,
+        Some(v) => update_value_enables(&v.to_string_lossy()),
+    }
+}
+
+/// The failing check for a missing snapshot in CI, or `None` when the
+/// snapshot may be created (not in CI, or update mode is on).
+fn missing_in_ci(
+    name: &str,
+    path: &Path,
+    binary: bool,
+    evidence: &[Evidence],
+) -> Option<CheckResult> {
+    if !ci_mode_enabled() || update_mode_enabled() {
+        return None;
+    }
+    let mut c = CheckResult::fail(name, Severity::Error).with_detail(format!(
+        "snapshot {} does not exist; it is not created when CI is set \
+         (set {UPDATE_ENV}=1 to create it)",
+        path.display()
+    ));
+    c.tags = vec!["fixtures".to_string(), "golden".to_string()];
+    if binary {
+        c.tags.push("binary".to_string());
+    }
+    c.tags.push("missing".to_string());
+    c.evidence = evidence.to_vec();
+    Some(c)
+}
 
 /// `true` if `DEV_FIXTURES_UPDATE_GOLDEN` is set to a value that means
 /// "on".
@@ -518,12 +570,78 @@ mod tests {
     // this guard, parallel tests race on the env var.
     static ENV_GUARD: Mutex<()> = Mutex::new(());
 
+    /// Run `f` with `CI` set to `value` (or removed), restoring it after.
+    fn with_ci<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let saved = std::env::var_os("CI");
+        match value {
+            Some(v) => std::env::set_var("CI", v),
+            None => std::env::remove_var("CI"),
+        }
+        let out = f();
+        match saved {
+            Some(v) => std::env::set_var("CI", v),
+            None => std::env::remove_var("CI"),
+        }
+        out
+    }
+
+    #[test]
+    fn missing_snapshot_fails_in_ci_and_is_not_created() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(UPDATE_ENV);
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("renamed_or_deleted.snap");
+        let bin = dir.path().join("renamed_or_deleted.bin");
+        let (c, cb) = with_ci(Some("true"), || {
+            (
+                Golden::new(&path).compare("greet", "hello\n"),
+                BinaryGolden::new(&bin).compare("frame", &[1u8]),
+            )
+        });
+        assert_eq!(c.verdict, Verdict::Fail);
+        assert_eq!(c.severity, Some(Severity::Error));
+        assert!(c.has_tag("missing"));
+        assert!(!c.has_tag("created"));
+        assert!(!path.exists());
+        assert_eq!(cb.verdict, Verdict::Fail);
+        assert!(cb.has_tag("missing") && cb.has_tag("binary"));
+        assert!(!bin.exists());
+    }
+
+    #[test]
+    fn missing_snapshot_in_ci_is_created_in_update_mode() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        let path = dir.path().join("snap.txt");
+        std::env::set_var(UPDATE_ENV, "1");
+        let c = with_ci(Some("true"), || {
+            Golden::new(&path).compare("greet", "hello\n")
+        });
+        std::env::remove_var(UPDATE_ENV);
+        assert_eq!(c.verdict, Verdict::Skip);
+        assert!(c.has_tag("created"));
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn ci_off_values_still_create_the_snapshot() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(UPDATE_ENV);
+        let dir = mod_tempdir::TempDir::new().unwrap();
+        for (i, off) in ["", "0", "false"].iter().enumerate() {
+            let path = dir.path().join(format!("snap{i}.txt"));
+            let c = with_ci(Some(off), || Golden::new(&path).compare("greet", "hi\n"));
+            assert_eq!(c.verdict, Verdict::Skip, "CI={off:?}");
+        }
+    }
+
     #[test]
     fn first_run_creates_snapshot_and_skips() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.txt");
         let g = Golden::new(&path);
-        let c = g.compare("greet", "hello\n");
+        let c = with_ci(None, || g.compare("greet", "hello\n"));
         assert_eq!(c.verdict, Verdict::Skip);
         assert!(c.has_tag("created"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "hello\n");
@@ -642,8 +760,12 @@ mod tests {
     fn line_diff_large_inputs_use_bounded_memory() {
         // 5000 x 5000 distinct lines would need a 25M-cell table; the
         // diff falls back to a removed block followed by an added block.
-        let exp: String = (0..5000).map(|i| format!("e{i}\n")).collect();
-        let act: String = (0..5000).map(|i| format!("a{i}\n")).collect();
+        let mut exp = String::new();
+        let mut act = String::new();
+        for i in 0..5000 {
+            exp.push_str(&format!("e{i}\n"));
+            act.push_str(&format!("a{i}\n"));
+        }
         let d = line_diff(&exp, &act);
         let lines: Vec<&str> = d.lines().collect();
         assert_eq!(lines.len(), 10_000);
@@ -723,10 +845,11 @@ mod tests {
 
     #[test]
     fn binary_golden_first_run_creates_snapshot() {
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         let dir = mod_tempdir::TempDir::new().unwrap();
         let path = dir.path().join("snap.bin");
         let g = BinaryGolden::new(&path);
-        let c = g.compare("frame", &[1u8, 2, 3, 4]);
+        let c = with_ci(None, || g.compare("frame", &[1u8, 2, 3, 4]));
         assert_eq!(c.verdict, Verdict::Skip);
         assert!(c.has_tag("created"));
         assert!(c.has_tag("binary"));
