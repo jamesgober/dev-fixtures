@@ -705,7 +705,7 @@ mod tests {
         });
         assert!(csv.contains("plain,also plain"));
         // No quotes added.
-        assert!(!csv.contains("\""));
+        assert!(!csv.contains('"'));
     }
 
     #[test]

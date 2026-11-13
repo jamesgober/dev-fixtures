@@ -760,8 +760,12 @@ mod tests {
     fn line_diff_large_inputs_use_bounded_memory() {
         // 5000 x 5000 distinct lines would need a 25M-cell table; the
         // diff falls back to a removed block followed by an added block.
-        let exp: String = (0..5000).map(|i| format!("e{i}\n")).collect();
-        let act: String = (0..5000).map(|i| format!("a{i}\n")).collect();
+        let mut exp = String::new();
+        let mut act = String::new();
+        for i in 0..5000 {
+            exp.push_str(&format!("e{i}\n"));
+            act.push_str(&format!("a{i}\n"));
+        }
         let d = line_diff(&exp, &act);
         let lines: Vec<&str> = d.lines().collect();
         assert_eq!(lines.len(), 10_000);

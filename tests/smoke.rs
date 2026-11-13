@@ -121,7 +121,7 @@ fn smoke_golden_first_run_creates_then_matches() {
     std::env::remove_var("CI");
     let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("snap.txt");
-    let g = Golden::new(&path);
+    let g = Golden::new(path);
     let first = g.compare("greet", "hello\n");
     let second = g.compare("greet", "hello\n");
 
@@ -164,7 +164,7 @@ fn smoke_mock_csv_round_trip() {
 #[test]
 fn smoke_mock_json_array_shape() {
     let json = mock_json::generate(2, 0, |rng| format!("{{\"v\":{}}}", rng.range(10)));
-    assert!(json.starts_with("[") && json.ends_with("]"));
+    assert!(json.starts_with('[') && json.ends_with(']'));
 }
 
 #[test]
