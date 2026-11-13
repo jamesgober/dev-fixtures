@@ -249,8 +249,8 @@ pub mod json_array {
     /// let json = generate(3, 7, |rng| {
     ///     format!("{{\"id\": {}}}", rng.range(1000))
     /// });
-    /// assert!(json.starts_with("["));
-    /// assert!(json.ends_with("]"));
+    /// assert!(json.starts_with('['));
+    /// assert!(json.ends_with(']'));
     /// ```
     pub fn generate<F>(count: usize, seed: u64, mut element_factory: F) -> String
     where
@@ -287,7 +287,7 @@ pub mod json_array {
     /// use dev_fixtures::mock::json_array::generate_validated;
     ///
     /// let json = generate_validated(3, 0, |rng| format!("{{\"v\":{}}}", rng.range(10))).unwrap();
-    /// assert!(json.starts_with("["));
+    /// assert!(json.starts_with('['));
     ///
     /// // A broken factory triggers a validation error.
     /// let err = generate_validated(1, 0, |_| "not_json".to_string()).unwrap_err();
@@ -711,8 +711,8 @@ mod tests {
     #[test]
     fn json_array_round_trip_shape() {
         let json = json_array::generate(3, 0, |rng| format!("{{\"id\":{}}}", rng.range(100)));
-        assert!(json.starts_with("["));
-        assert!(json.ends_with("]"));
+        assert!(json.starts_with('['));
+        assert!(json.ends_with(']'));
         // 3 elements -> 2 commas at top level.
         assert_eq!(json.matches(',').count(), 2);
     }
@@ -722,7 +722,7 @@ mod tests {
         let json =
             json_array::generate_validated(3, 0, |rng| format!("{{\"v\":{}}}", rng.range(10)))
                 .unwrap();
-        assert!(json.starts_with("["));
+        assert!(json.starts_with('['));
     }
 
     #[test]

@@ -115,13 +115,26 @@ fn smoke_adversarial_malformed_utf8_round_trip() {
 
 #[test]
 fn smoke_golden_first_run_creates_then_matches() {
+    // Snapshots are created only outside CI. This is the only test in
+    // this binary that reads `CI`.
+    let saved = std::env::var_os("CI");
+    std::env::remove_var("CI");
     let dir = mod_tempdir::TempDir::new().unwrap();
     let path = dir.path().join("snap.txt");
     let g = Golden::new(&path);
     let first = g.compare("greet", "hello\n");
-    assert!(matches!(first.verdict, dev_report::Verdict::Skip));
     let second = g.compare("greet", "hello\n");
+
+    std::env::set_var("CI", "true");
+    let missing = Golden::new(dir.path().join("missing.txt")).compare("greet", "hello\n");
+    match saved {
+        Some(v) => std::env::set_var("CI", v),
+        None => std::env::remove_var("CI"),
+    }
+    assert!(matches!(first.verdict, dev_report::Verdict::Skip));
     assert!(matches!(second.verdict, dev_report::Verdict::Pass));
+    assert!(matches!(missing.verdict, dev_report::Verdict::Fail));
+    assert!(missing.has_tag("missing"));
 }
 
 #[test]
